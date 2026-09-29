@@ -1,0 +1,12 @@
+    python -m pip install radon
+Cyclomatic Complexity
+    radon cc app -s -a
+Maintainability Index
+    radon mi app -s 
+Funkcijų / modulių dydis
+    radon raw app -s
+
+    
+    python -m pip install complexipy
+Cognitive Complexity
+    complexipy app
