@@ -1,0 +1,14 @@
+﻿app\services\aquarium_indicator_logic.py:56 Aquarium::__init__ 0
+app\services\aquarium_indicator_logic.py:321 CompatibilityChecker::_build_result 0
+app\services\aquarium_indicator_logic.py:36 Fish::__init__ 0
+app\services\aquarium_indicator_logic.py:370 fish_from_row 0
+app\services\aquarium_indicator_logic.py:355 infer_schooling 0
+app\services\aquarium_indicator_logic.py:70 prioritize_status 0
+app\services\aquarium_indicator_logic.py:345 map_aggression 1
+app\services\aquarium_indicator_logic.py:62 calculate_range_deviation 2
+app\services\aquarium_indicator_logic.py:79 check_range_overlap 2
+app\services\aquarium_indicator_logic.py:105 load_aquarium_data 2
+app\services\aquarium_indicator_logic.py:334 deduplicate_codes 3
+app\services\aquarium_indicator_logic.py:154 check_aggression 4
+app\services\aquarium_indicator_logic.py:175 CompatibilityChecker::check_compatibility 10
+app\services\aquarium_indicator_logic.py:223 CompatibilityChecker::evaluate_candidate_for_aquarium 15

@@ -58,6 +58,118 @@ class Aquarium:
         self.current_ph = current_ph
         self.available_volume = available_volume
 
+# kiek reikšmė nutolusi nuo leistino intervalo
+def calculate_range_deviation(value: float, minimum: float, maximum: float) -> float:
+    if value < minimum:
+        return minimum - value
+    if value > maximum:
+        return value - maximum
+    return 0
+
+
+def prioritize_status(current: StatusColor, new: StatusColor) -> StatusColor:
+    priority = {
+        StatusColor.GREEN: 0,
+        StatusColor.YELLOW: 1,
+        StatusColor.RED: 2,
+    }
+    return max((current, new), key=lambda status: priority[status])
+
+
+def check_range_overlap(
+    existing_fish,
+    candidate_min,
+    candidate_max,
+    min_key,
+    max_key,
+    narrow_limit,
+    critical_code,
+    narrow_code,
+):
+    existing_min = max(float(row[min_key]) for row in existing_fish)
+    existing_max = min(float(row[max_key]) for row in existing_fish)
+
+    overlap = min(existing_max, candidate_max) - max(
+        existing_min, candidate_min
+    )
+
+    if overlap < 0:
+        return StatusColor.RED, critical_code
+
+    if overlap < narrow_limit:
+        return StatusColor.YELLOW, narrow_code
+
+    return StatusColor.GREEN, None
+
+
+def load_aquarium_data(aquarium_id, fish_id):
+    conn = sqlite3.connect(APP_DB)
+    conn.row_factory = sqlite3.Row
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT id, fish_name, aggression, size,
+                   temp_min, temp_max, ph_min, ph_max
+            FROM fish_list
+            WHERE id = ?
+            """,
+            (fish_id,),
+        )
+        fish_row = cursor.fetchone()
+
+        if fish_row is None:
+            return None, None, []
+
+        cursor.execute(
+            "SELECT id, aquarium_name, volume FROM aquarium WHERE id = ?",
+            (aquarium_id,),
+        )
+        aquarium_row = cursor.fetchone()
+
+        if aquarium_row is None:
+            return fish_row, None, []
+
+        cursor.execute(
+            """
+            SELECT fl.id, fl.fish_name, fl.aggression,
+                   fl.size, fl.temp_min, fl.temp_max,
+                   fl.ph_min, fl.ph_max
+            FROM fish_in_aquarium fia
+            JOIN fish_list fl ON fl.id = fia.fish_id
+            WHERE fia.aquarium_id = ?
+            """,
+            (aquarium_id,),
+        )
+        existing_fish = cursor.fetchall()
+
+        return fish_row, aquarium_row, existing_fish
+
+    finally:
+        conn.close()
+
+
+def check_aggression(candidate, existing_fish):
+    existing_aggressions = {
+        map_aggression(row["aggression"]) for row in existing_fish
+    }
+
+    if (
+        candidate.aggression == AggressionLevel.AGGRESSIVE
+        or AggressionLevel.AGGRESSIVE in existing_aggressions
+    ):
+        return StatusColor.RED, "PREDATOR_ALERT"
+
+    if (
+        candidate.aggression == AggressionLevel.SEMI_AGGRESSIVE
+        or AggressionLevel.SEMI_AGGRESSIVE in existing_aggressions
+    ):
+        return StatusColor.YELLOW, "SEMI_AGGRESSIVE_WARNING"
+
+    return StatusColor.GREEN, None
+
 
 class CompatibilityChecker:
     @staticmethod
@@ -74,41 +186,33 @@ class CompatibilityChecker:
             worst_status = StatusColor.RED
             alerts.append("PREDATOR_ALERT")
         elif fish.aggression == AggressionLevel.SEMI_AGGRESSIVE:
-            if worst_status != StatusColor.RED:
-                worst_status = StatusColor.YELLOW
+            worst_status = prioritize_status(worst_status, StatusColor.YELLOW)
             alerts.append("SEMI_AGGRESSIVE_WARNING")
 
-        temp_diff = 0
-        if aquarium.current_temp < fish.temp_min:
-            temp_diff = fish.temp_min - aquarium.current_temp
-        elif aquarium.current_temp > fish.temp_max:
-            temp_diff = aquarium.current_temp - fish.temp_max
+        temp_diff = calculate_range_deviation(
+            aquarium.current_temp, fish.temp_min, fish.temp_max
+        )
 
         if temp_diff > 2:
             worst_status = StatusColor.RED
             alerts.append("TEMP_MISMATCH_CRITICAL")
         elif 0 < temp_diff <= 2:
-            if worst_status != StatusColor.RED:
-                worst_status = StatusColor.YELLOW
+            worst_status = prioritize_status(worst_status, StatusColor.YELLOW)
             alerts.append("TEMP_MISMATCH_MINOR")
 
-        ph_diff = 0
-        if aquarium.current_ph < fish.ph_min:
-            ph_diff = fish.ph_min - aquarium.current_ph
-        elif aquarium.current_ph > fish.ph_max:
-            ph_diff = aquarium.current_ph - fish.ph_max
+        ph_diff = calculate_range_deviation(
+            aquarium.current_ph, fish.ph_min, fish.ph_max
+        )
 
         if ph_diff > 2:
             worst_status = StatusColor.RED
             alerts.append("PH_MISMATCH_CRITICAL")
         elif 0 < ph_diff <= 2:
-            if worst_status != StatusColor.RED:
-                worst_status = StatusColor.YELLOW
+            worst_status = prioritize_status(worst_status, StatusColor.YELLOW)
             alerts.append("PH_MISMATCH_MINOR")
 
         if fish.needs_school and quantity_to_add < fish.school_min_size:
-            if worst_status != StatusColor.RED:
-                worst_status = StatusColor.YELLOW
+            worst_status = prioritize_status(worst_status, StatusColor.YELLOW)
             alerts.append("SOCIAL_NEED_UNMET")
 
         if not alerts:
@@ -118,43 +222,20 @@ class CompatibilityChecker:
 
     @staticmethod
     def evaluate_candidate_for_aquarium(aquarium_id: int, fish_id: int, quantity_to_add: int = 1) -> dict:
-        conn = sqlite3.connect(APP_DB)
-        conn.row_factory = sqlite3.Row
-        try:
-            cursor = conn.cursor()
 
-            cursor.execute(
-                """
-                SELECT id, fish_name, aggression, size, temp_min, temp_max, ph_min, ph_max
-                FROM fish_list
-                WHERE id = ?
-                """,
-                (fish_id,),
-            )
-            fish_row = cursor.fetchone()
-            if fish_row is None:
-                return CompatibilityChecker._build_result(StatusColor.RED, ["PREDATOR_ALERT"])
+        fish_row, aquarium_row, existing_fish = load_aquarium_data(
+            aquarium_id, fish_id
+        )
 
-            cursor.execute(
-                "SELECT id, aquarium_name, volume FROM aquarium WHERE id = ?",
-                (aquarium_id,),
+        if fish_row is None:
+            return CompatibilityChecker._build_result(
+                StatusColor.RED, ["PREDATOR_ALERT"]
             )
-            aquarium_row = cursor.fetchone()
-            if aquarium_row is None:
-                return CompatibilityChecker._build_result(StatusColor.RED, ["VOLUME_LIMIT_EXCEEDED"])
 
-            cursor.execute(
-                """
-                SELECT fl.id, fl.fish_name, fl.aggression, fl.size, fl.temp_min, fl.temp_max, fl.ph_min, fl.ph_max
-                FROM fish_in_aquarium fia
-                JOIN fish_list fl ON fl.id = fia.fish_id
-                WHERE fia.aquarium_id = ?
-                """,
-                (aquarium_id,),
+        if aquarium_row is None:
+            return CompatibilityChecker._build_result(
+                StatusColor.RED, ["VOLUME_LIMIT_EXCEEDED"]
             )
-            existing_fish = cursor.fetchall()
-        finally:
-            conn.close()
 
         candidate = fish_from_row(fish_row)
         alerts = []
@@ -167,19 +248,17 @@ class CompatibilityChecker:
             alerts.append("VOLUME_LIMIT_EXCEEDED")
 
         existing_same_species = sum(1 for row in existing_fish if int(row["id"]) == fish_id)
-        if candidate.needs_school and existing_same_species + quantity_to_add < candidate.school_min_size:
-            if worst_status != StatusColor.RED:
-                worst_status = StatusColor.YELLOW
+
+        if (candidate.needs_school and existing_same_species + quantity_to_add < candidate.school_min_size):
+            worst_status = prioritize_status(worst_status, StatusColor.YELLOW)
             alerts.append("SOCIAL_NEED_UNMET")
 
         if not existing_fish:
-            if candidate.aggression == AggressionLevel.AGGRESSIVE:
-                worst_status = StatusColor.RED
-                alerts.append("PREDATOR_ALERT")
-            elif candidate.aggression == AggressionLevel.SEMI_AGGRESSIVE:
-                if worst_status != StatusColor.RED:
-                    worst_status = StatusColor.YELLOW
-                alerts.append("SEMI_AGGRESSIVE_WARNING")
+            aggression_status, aggression_code = check_aggression(candidate, existing_fish)
+            worst_status = prioritize_status(worst_status, aggression_status)
+
+            if aggression_code:
+                alerts.append(aggression_code)
 
             alerts.append("AQUARIUM_EMPTY")
             if "ALL_PARAMETERS_PERFECT" not in alerts and len(alerts) == 1:
@@ -191,39 +270,43 @@ class CompatibilityChecker:
                 fish_name=candidate.name,
             )
 
-        existing_temp_min = max(float(row["temp_min"]) for row in existing_fish)
-        existing_temp_max = min(float(row["temp_max"]) for row in existing_fish)
-        temp_overlap = min(existing_temp_max, candidate.temp_max) - max(existing_temp_min, candidate.temp_min)
-        if temp_overlap < 0:
-            worst_status = StatusColor.RED
-            alerts.append("TEMP_MISMATCH_CRITICAL")
-        elif temp_overlap < 2:
-            if worst_status != StatusColor.RED:
-                worst_status = StatusColor.YELLOW
-            alerts.append("TEMP_RANGE_NARROW")
+        temp_status, temp_code = check_range_overlap(
+            existing_fish,
+            candidate.temp_min,
+            candidate.temp_max,
+            "temp_min",
+            "temp_max",
+            2,
+            "TEMP_MISMATCH_CRITICAL",
+            "TEMP_RANGE_NARROW",
+        )
 
-        existing_ph_min = max(float(row["ph_min"]) for row in existing_fish)
-        existing_ph_max = min(float(row["ph_max"]) for row in existing_fish)
-        ph_overlap = min(existing_ph_max, candidate.ph_max) - max(existing_ph_min, candidate.ph_min)
-        if ph_overlap < 0:
-            worst_status = StatusColor.RED
-            alerts.append("PH_MISMATCH_CRITICAL")
-        elif ph_overlap < 1:
-            if worst_status != StatusColor.RED:
-                worst_status = StatusColor.YELLOW
-            alerts.append("PH_RANGE_NARROW")
+        worst_status = prioritize_status(worst_status, temp_status)
 
-        existing_aggressions = {map_aggression(row["aggression"]) for row in existing_fish}
-        if candidate.aggression == AggressionLevel.AGGRESSIVE or AggressionLevel.AGGRESSIVE in existing_aggressions:
-            worst_status = StatusColor.RED
-            alerts.append("PREDATOR_ALERT")
-        elif (
-            candidate.aggression == AggressionLevel.SEMI_AGGRESSIVE
-            or AggressionLevel.SEMI_AGGRESSIVE in existing_aggressions
-        ):
-            if worst_status != StatusColor.RED:
-                worst_status = StatusColor.YELLOW
-            alerts.append("SEMI_AGGRESSIVE_WARNING")
+        if temp_code:
+            alerts.append(temp_code)
+
+        ph_status, ph_code = check_range_overlap(
+            existing_fish,
+            candidate.ph_min,
+            candidate.ph_max,
+            "ph_min",
+            "ph_max",
+            1,
+            "PH_MISMATCH_CRITICAL",
+            "PH_RANGE_NARROW",
+        )
+
+        worst_status = prioritize_status(worst_status, ph_status)
+
+        if ph_code:
+            alerts.append(ph_code)
+
+        aggression_status, aggression_code = check_aggression(candidate, existing_fish)
+        worst_status = prioritize_status(worst_status, aggression_status)
+
+        if aggression_code:
+            alerts.append(aggression_code)
 
         if not alerts:
             alerts.append("ALL_PARAMETERS_PERFECT")
