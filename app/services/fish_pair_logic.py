@@ -26,33 +26,44 @@ def map_db_to_fish(db_fish: dict) -> tuple[str, int, float, float, float, float]
     )
 
 
+
+def check_range_compatibility(
+    min1: float, max1: float,
+    min2: float, max2: float,
+    min_overlap: float
+) -> int:
+    overlap = min(max1, max2) - max(min1, min2)
+
+    if overlap < 0:
+        return STATUS_RED
+
+    if overlap < min_overlap:
+        return STATUS_YELLOW
+
+    return STATUS_GREEN
+
+
 def check_fish_pair_code(fish1: tuple[str, int, float, float, float, float], fish2: tuple[str, int, float, float, float, float]) -> int:
-    aggression_1 = fish1[1]
-    aggression_2 = fish2[1]
+    aggression_levels = (fish1[1], fish2[1])
 
-    if aggression_1 == AggressionLevel.AGGRESSIVE.value or aggression_2 == AggressionLevel.AGGRESSIVE.value:
+    if AggressionLevel.AGGRESSIVE.value in aggression_levels:
         return STATUS_RED
 
-    status = STATUS_YELLOW if (
-        aggression_1 == AggressionLevel.SEMI_AGGRESSIVE.value
-        or aggression_2 == AggressionLevel.SEMI_AGGRESSIVE.value
-    ) else STATUS_GREEN
+    aggression_status = (
+        STATUS_YELLOW
+        if AggressionLevel.SEMI_AGGRESSIVE.value in aggression_levels
+        else STATUS_GREEN
+    )
 
-    temp_min = fish1[2] if fish1[2] > fish2[2] else fish2[2]
-    temp_max = fish1[3] if fish1[3] < fish2[3] else fish2[3]
-    if temp_min > temp_max:
-        return STATUS_RED
-    if (temp_max - temp_min) < 2:
-        status = STATUS_YELLOW
+    temperature_status = check_range_compatibility(
+        fish1[2], fish1[3], fish2[2], fish2[3], 2
+    )
 
-    ph_min = fish1[4] if fish1[4] > fish2[4] else fish2[4]
-    ph_max = fish1[5] if fish1[5] < fish2[5] else fish2[5]
-    if ph_min > ph_max:
-        return STATUS_RED
-    if (ph_max - ph_min) < 1:
-        status = STATUS_YELLOW
+    ph_status = check_range_compatibility(
+        fish1[4], fish1[5], fish2[4], fish2[5], 1
+    )
 
-    return status
+    return max(aggression_status, temperature_status, ph_status)
 
 
 @lru_cache(maxsize=1)
