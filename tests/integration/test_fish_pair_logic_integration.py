@@ -1,3 +1,4 @@
+
 import os
 import tempfile
 import unittest
@@ -9,6 +10,8 @@ import app.services.fish_pair_logic as fish_pair_logic
 
 class TestFishPairLogicIntegration(unittest.TestCase):
     def setUp(self):
+        fish_pair_logic.build_compatibility_matrix.cache_clear()
+
         fd, self.db_path = tempfile.mkstemp(suffix=".db")
         os.close(fd)
 
@@ -23,6 +26,8 @@ class TestFishPairLogicIntegration(unittest.TestCase):
         fish_logic.initialize_fish_module()
 
     def tearDown(self):
+        fish_pair_logic.build_compatibility_matrix.cache_clear()
+
         for db_patch in reversed(self.db_patches):
             db_patch.stop()
 
@@ -73,10 +78,10 @@ class TestFishPairLogicIntegration(unittest.TestCase):
         self.assertEqual(
             result["matrix"],
             [
-                ["SELF", "YELLOW", "YELLOW", "RED"],
-                ["YELLOW", "SELF", "YELLOW", "RED"],
-                ["YELLOW", "YELLOW", "SELF", "RED"],
-                ["RED", "RED", "RED", "SELF"],
+                bytearray([0, 2, 2, 3]),
+                bytearray([2, 0, 2, 3]),
+                bytearray([2, 2, 0, 3]),
+                bytearray([3, 3, 3, 0]),
             ],
         )
 
