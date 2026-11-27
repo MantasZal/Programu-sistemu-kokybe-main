@@ -18,8 +18,7 @@ class TestAquariumParameters(unittest.TestCase):
         self.pages = [AquariumPage, AquariumManagementPage]
 
         self.db_patches = [
-            patch("app.ui.aquarium_page.APP_DB", self.db_path),
-            patch("app.ui.aquarium_management_page.APP_DB", self.db_path),
+            patch("app.services.aquarium_parameters_logic.APP_DB", self.db_path),
         ]
 
         for db_patch in self.db_patches:

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import sqlite3
 import sys
 from pathlib import Path
+
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -24,11 +24,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+
 try:
-    from app.config import APP_DB
     from app.database.db_setup import create_tables
     from app.services.aquarium_editing_save_logic import AquariumUpdateError, update_aquarium
     from app.services.aquarium_load import calculate_tank_load
+    from app.services.aquarium_parameters_logic import (
+        calculate_temp_ph_summary,
+        first_matching_aquarium_record,
+    )
     from app.services.multiple_aquarium_logic import create_aquarium, get_all_aquariums
     from app.services.remove_fish_from_aquarium import (
         recalculate_aquarium_balance,
@@ -36,15 +40,19 @@ try:
     )
 except ModuleNotFoundError:
     sys.path.append(str(Path(__file__).resolve().parents[2]))
-    from app.config import APP_DB
     from app.database.db_setup import create_tables
     from app.services.aquarium_editing_save_logic import AquariumUpdateError, update_aquarium
     from app.services.aquarium_load import calculate_tank_load
+    from app.services.aquarium_parameters_logic import (
+        calculate_temp_ph_summary,
+        first_matching_aquarium_record,
+    )
     from app.services.multiple_aquarium_logic import create_aquarium, get_all_aquariums
     from app.services.remove_fish_from_aquarium import (
         recalculate_aquarium_balance,
         remove_fish_from_aquarium,
     )
+
 
 
 class AquariumDetailsDialog(QDialog):
@@ -503,54 +511,10 @@ class AquariumPage(QWidget):
         )
 
     def _calculate_temp_ph_summary(self, aquarium_id: int) -> str:
-        conn = sqlite3.connect(APP_DB)
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT fl.temp_min, fl.temp_max, fl.ph_min, fl.ph_max
-                FROM fish_in_aquarium fia
-                JOIN fish_list fl ON fia.fish_id = fl.id
-                WHERE fia.aquarium_id = ?
-                """,
-                (aquarium_id,),
-            )
-            rows = cursor.fetchall()
-        finally:
-            conn.close()
-
-        if not rows:
-            return "Temp/pH: no fish"
-
-        temp_min = max(row[0] for row in rows)
-        temp_max = min(row[1] for row in rows)
-        ph_min = max(row[2] for row in rows)
-        ph_max = min(row[3] for row in rows)
-
-        if temp_min > temp_max or ph_min > ph_max:
-            return "Temp/pH: incompatible"
-
-        return f"Temp/pH: {temp_min:.1f}-{temp_max:.1f} C | pH {ph_min:.1f}-{ph_max:.1f}"
+        return calculate_temp_ph_summary(aquarium_id)
 
     def _first_matching_aquarium_record(self, aquarium_id: int, fish_id: int) -> int | None:
-        conn = sqlite3.connect(APP_DB)
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT id
-                FROM fish_in_aquarium
-                WHERE aquarium_id = ? AND fish_id = ?
-                ORDER BY id ASC
-                LIMIT 1
-                """,
-                (aquarium_id, fish_id),
-            )
-            row = cursor.fetchone()
-        finally:
-            conn.close()
-
-        return None if row is None else int(row[0])
+        return first_matching_aquarium_record(aquarium_id, fish_id)
 
     def _clear_aquarium_details(self) -> None:
         self.aquarium_title_label.setText("Choose an aquarium")
