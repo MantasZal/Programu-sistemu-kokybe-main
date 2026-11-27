@@ -1,12 +1,59 @@
-    python -m pip install radon
-Cyclomatic Complexity
-    radon cc app -s -a
-Maintainability Index
-    radon mi app -s 
-Funkcijų / modulių dydis
-    radon raw app -s
+$env:PYTHONIOENCODING = "utf-8"
+$env:PYTHONUTF8 = "1"
 
-    
-    python -m pip install complexipy
-Cognitive Complexity
-    complexipy app
+New-Item -ItemType Directory -Force quality_results | Out-Null
+
+python -m pip show radon complexipy pydeps ruff pylint > quality_results\tool_versions.txt
+
+python -m radon cc app -s -a > quality_results\radon_cc.txt
+
+python -m radon mi app -s > quality_results\radon_mi.txt
+
+python -m radon raw app -s > quality_results\radon_raw.txt
+
+complexipy app --output quality_results/complexipy_results.csv --output-format csv
+
+python -m pydeps app --show-deps > quality_results\pydeps_results.txt
+
+python -m ruff check app --output-format full > quality_results\ruff_results.txt
+
+python -m pylint app --output-format=text > quality_results\pylint_results.txt
+
+
+
+radon_cc.txt — ciklomatinis sudėtingumas
+radon_mi.txt — prižiūrimumo indeksas
+radon_raw.txt — kodo eilučių skaičius
+complexipy_results.txt — kognityvinis sudėtingumas
+pydeps_results.txt — modulių priklausomybės
+ruff_results.txt — Ruff problemos
+pylint_results.txt — Pylint problemos
+
+
+
+$env:PYTHONIOENCODING = "utf-8"
+$env:PYTHONUTF8 = "1"
+
+# Įrankių versijos
+python -m pip show radon complexipy pydeps ruff pylint
+
+# Ciklomatinis sudėtingumas (CC)
+python -m radon cc app -s -a
+
+# Maintainability Index (MI)
+python -m radon mi app -s
+
+# Kodo dydis (LOC, SLOC, LLOC)
+python -m radon raw app -s
+
+# Kognityvinis sudėtingumas
+complexipy app
+
+# Modulių priklausomybės (Fan-in / Fan-out analizei)
+python -m pydeps app --show-deps --no-show --no-output
+
+# Ruff statinė analizė
+python -m ruff check app --output-format full
+
+# Pylint statinė analizė
+python -m pylint app --output-format=text
